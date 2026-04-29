@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+mcu_fuel.db
+uploads/*
+!uploads/.gitkeep
+.env
+venv/
+.venv/

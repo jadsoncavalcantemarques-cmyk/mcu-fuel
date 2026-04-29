@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCU — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#D4A017;--bg:#f5f5f5;--text:#1a1a1a;--text2:#555;--red:#C0392B;--green:#27AE60}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:linear-gradient(135deg,#1a1a1a 0%,#2a2a2a 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-box{background:#fff;border-radius:16px;padding:40px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.logo{background:var(--gold);border-radius:14px;width:60px;height:60px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:900;color:#000;margin:0 auto 16px}
+h1{text-align:center;font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px}
+.subtitle{text-align:center;color:var(--text2);font-size:13px;margin-bottom:28px}
+label{display:block;color:var(--text2);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;margin-top:14px}
+input{width:100%;padding:11px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;background:#fafafa;transition:all .2s}
+input:focus{outline:none;border-color:var(--gold);background:#fff;box-shadow:0 0 0 3px #D4A01722}
+.btn{width:100%;padding:12px;border:none;border-radius:8px;background:var(--gold);color:#000;font-size:13px;font-weight:800;cursor:pointer;margin-top:20px;font-family:inherit;transition:all .2s}
+.btn:hover{background:#c49615}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+.link{display:block;text-align:center;color:var(--text2);font-size:12px;margin-top:14px;cursor:pointer;text-decoration:underline}
+.link:hover{color:var(--gold)}
+.alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-top:12px;text-align:center}
+.alert.error{background:#C0392B15;color:var(--red);border:1px solid #C0392B33}
+.alert.success{background:#27AE6015;color:var(--green);border:1px solid #27AE6033}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal-overlay.show{display:flex}
+.modal-box{background:#fff;border-radius:14px;padding:28px;max-width:380px;width:100%}
+.close{position:absolute;top:10px;right:10px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2)}
+.footer{text-align:center;margin-top:20px;color:#aaa;font-size:11px}
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="logo">M</div>
+  <h1>MCU</h1>
+  <p class="subtitle">Gestão de Combustível</p>
+  <form id="loginForm" onsubmit="return login(event)">
+    <label for="email">E-mail</label>
+    <input type="email" id="email" required autofocus>
+    <label for="password">Senha</label>
+    <input type="password" id="password" required>
+    <div id="alert" class="alert" style="display:none"></div>
+    <button type="submit" class="btn" id="btnLogin">Entrar</button>
+  </form>
+  <a class="link" onclick="openForgot()">Esqueci minha senha</a>
+  <div class="footer">Marques Transporte de Cargas Urgentes</div>
+</div>
+
+<div id="forgotModal" class="modal-overlay">
+  <div class="modal-box" style="position:relative">
+    <button class="close" onclick="closeForgot()">✕</button>
+    <h1 style="font-size:18px;margin-bottom:6px">Recuperar Senha</h1>
+    <p class="subtitle" style="margin-bottom:16px;text-align:left">Informe o e-mail cadastrado para receber o link de redefinição.</p>
+    <form onsubmit="return forgotPass(event)">
+      <label for="fEmail">E-mail</label>
+      <input type="email" id="fEmail" required>
+      <div id="fAlert" class="alert" style="display:none"></div>
+      <button type="submit" class="btn">Enviar link</button>
+    </form>
+  </div>
+</div>
+
+<script>
+async function login(e){
+  e.preventDefault();
+  const btn=document.getElementById("btnLogin");btn.disabled=true;btn.textContent="Entrando...";
+  const a=document.getElementById("alert");a.style.display="none";
+  try{
+    const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
+    const d=await r.json();
+    if(r.ok){window.location.href="/"}
+    else{a.className="alert error";a.textContent=d.error||"Erro ao entrar";a.style.display="block"}
+  }catch(e){a.className="alert error";a.textContent="Erro de conexão: "+e.message;a.style.display="block"}
+  btn.disabled=false;btn.textContent="Entrar";
+  return false;
+}
+
+function openForgot(){document.getElementById("forgotModal").classList.add("show")}
+function closeForgot(){document.getElementById("forgotModal").classList.remove("show")}
+
+async function forgotPass(e){
+  e.preventDefault();
+  const a=document.getElementById("fAlert");a.style.display="none";
+  try{
+    const r=await fetch("/api/auth/forgot",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("fEmail").value})});
+    const d=await r.json();
+    if(r.ok){
+      a.className="alert success";
+      a.innerHTML=d.message+(d.dev_url?'<br><br><a href="'+d.dev_url+'" style="color:#D4A017;word-break:break-all">'+d.dev_url+'</a>':'');
+      a.style.display="block";
+    }else{a.className="alert error";a.textContent=d.error;a.style.display="block"}
+  }catch(e){a.className="alert error";a.textContent=e.message;a.style.display="block"}
+  return false;
+}
+</script>
+</body>
+</html>
