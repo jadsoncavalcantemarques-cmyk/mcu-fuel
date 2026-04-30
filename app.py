@@ -533,7 +533,11 @@ def parse_nfce_xml(filepath):
 # ═══════════════════════════════════════
 def get_db():
     if 'db' not in g:
-        g.db = database.get_connection()
+        try:
+            g.db = database.get_connection()
+        except Exception as e:
+            print(f"  ❌ DB connection error: {e}")
+            raise
     return g.db
 
 @app.teardown_appcontext
@@ -542,8 +546,23 @@ def close_db(exception):
     if db is not None:
         database.close(db)
 
+@app.errorhandler(500)
+def handle_500(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': f'Erro interno do servidor: {str(e)}'}), 500
+    return f'<h1>Erro 500</h1><p>{e}</p><p><a href="/login">Voltar</a></p>', 500
+
 def init_db():
-    conn = database.get_connection()
+    try:
+        conn = database.get_connection()
+    except Exception as e:
+        print(f"\n  ⚠️ ERRO: Não conseguiu conectar ao banco de dados!")
+        print(f"  ⚠️ {e}")
+        print(f"  ⚠️ DATABASE_URL configurada: {'Sim' if os.environ.get('DATABASE_URL') else 'Não'}")
+        print(f"  ⚠️ O app vai iniciar, mas login não funcionará até resolver a conexão.")
+        print(f"  ⚠️ Acesse /health para diagnóstico\n")
+        return
+
     database.init_schema(conn)
 
     # Auto-migration: add columns if missing
@@ -1007,6 +1026,36 @@ def login_page():
         return redirect(url_for('index'))
     return render_template('login.html')
 
+@app.route('/health')
+def health_check():
+    """Health check - shows DB connection status (no auth required)"""
+    import db as database
+    result = {
+        'status': 'ok',
+        'db_mode': database.get_mode(),
+        'db_url_set': bool(os.environ.get('DATABASE_URL')),
+        'db_url_preview': '',
+        'templates_ok': all(os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', f)) for f in ['login.html','index.html','reset.html']),
+    }
+    # Show masked URL for debugging
+    url = os.environ.get('DATABASE_URL', '')
+    if url:
+        # Mask password
+        import re
+        result['db_url_preview'] = re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', url)
+    
+    try:
+        conn = database.get_connection()
+        row = database.fetchone(conn, "SELECT COUNT(*) as c FROM users")
+        result['db_connected'] = True
+        result['users_count'] = row['c']
+        database.close(conn)
+    except Exception as e:
+        result['db_connected'] = False
+        result['db_error'] = str(e)
+    
+    return jsonify(result)
+
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
     data = request.json or {}
@@ -1358,6 +1407,17 @@ def create_record():
     data['id'] = gen_id()
     data['valor_final'] = (data.get('valor_total', 0) or 0) - (data.get('desconto', 0) or 0)
 
+    # Ensure numeric fields have proper defaults
+    for c in ['km','consumo_kml','litros','preco_unit','valor_total','desconto','valor_final','placa_corrigida']:
+        v = data.get(c)
+        if v is None or v == '':
+            data[c] = 0
+        else:
+            try:
+                data[c] = float(v)
+            except (ValueError, TypeError):
+                data[c] = 0
+
     issues = detect_divergences(data)
     if issues:
         data['status'] = 'divergencia'
@@ -1373,8 +1433,12 @@ def create_record():
             'documento','rota','status','nota_div','origem','placa_original','placa_corrigida']
     vals = [data.get(c, '') for c in cols]
     placeholders = ','.join(['?'] * len(cols))
-    database.execute(db, f"INSERT INTO records ({','.join(cols)}) VALUES ({placeholders})", vals)
-    database.commit(db)
+    try:
+        database.execute(db, f"INSERT INTO records ({','.join(cols)}) VALUES ({placeholders})", vals)
+        database.commit(db)
+    except Exception as e:
+        print(f"  ❌ Create error: {e}")
+        return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True, 'id': data['id']})
 
 @app.route('/api/records/<id>', methods=['PUT'])
@@ -1383,6 +1447,23 @@ def update_record(id):
     db = get_db()
     data = request.json
     data['valor_final'] = (data.get('valor_total', 0) or 0) - (data.get('desconto', 0) or 0)
+
+    # Ensure numeric fields have proper defaults (PostgreSQL rejects '' for REAL)
+    numeric_cols = ['km','consumo_kml','litros','preco_unit','valor_total','desconto','valor_final','placa_corrigida']
+    for c in numeric_cols:
+        v = data.get(c)
+        if v is None or v == '':
+            data[c] = 0
+        else:
+            try:
+                data[c] = float(v)
+            except (ValueError, TypeError):
+                data[c] = 0
+
+    # Ensure text fields have defaults
+    for c in ['placa_original','nota_div','documento']:
+        if not data.get(c):
+            data[c] = ''
 
     issues = detect_divergences(data)
     if not issues and data.get('status') == 'divergencia':
@@ -1397,8 +1478,12 @@ def update_record(id):
             'documento','rota','status','nota_div','placa_original','placa_corrigida']
     sets = ','.join([f"{c}=?" for c in cols])
     vals = [data.get(c, '') for c in cols] + [id]
-    database.execute(db, f"UPDATE records SET {sets} WHERE id=?", vals)
-    database.commit(db)
+    try:
+        database.execute(db, f"UPDATE records SET {sets} WHERE id=?", vals)
+        database.commit(db)
+    except Exception as e:
+        print(f"  ❌ Update error: {e}")
+        return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True})
 
 @app.route('/api/records/<id>', methods=['DELETE'])
